@@ -1,62 +1,94 @@
-#!/usr/bin/env python3
-"""
-This is a script to convert a Markdown file to HTML.
+#!/usr/bin/python3
+"""Markdown to HTML Converter."""
 
-Usage:
-    ./markdown2html.py [input_file] [output_file]
-
-Arguments:
-    input_file: the name of the Markdown file to be converted
-    output_file: the name of the output HTML file
-
-Example:
-    ./markdown2html.py README.md README.html
-"""
-
-import argparse
-import pathlib
-import re
+from re import findall
+from sys import argv, stderr
+from os import path
+from hashlib import md5
 
 
-def convert_md_to_html(input_file, output_file):
-    '''
-    Converts markdown file to HTML file
-    '''
-    # Read the contents of the input file
-    with open(input_file, encoding='utf-8') as f:
-        md_content = f.readlines()
+if __name__ == "__main__":
+    if len(argv) < 3:
+        print("Usage: ./markdown2html.py README.md README.html", file=stderr)
+        exit(1)
 
-    html_content = []
-    for line in md_content:
-        # Check if the line is a heading
-        match = re.match(r'(#){1,6} (.*)', line)
-        if match:
-            # Get the level of the heading
-            h_level = len(match.group(1))
-            # Get the content of the heading
-            h_content = match.group(2)
-            # Append the HTML equivalent of the heading
-            html_content.append(f'<h{h_level}>{h_content}</h{h_level}>\n')
-        else:
-            html_content.append(line)
+    if not path.isfile(argv[1]):
+        print("Missing {}".format(argv[1]), file=stderr)
+        exit(1)
 
-    # Write the HTML content to the output file
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.writelines(html_content)
+    with open(argv[1]) as read:
+        with open(argv[2], "w") as html:
+            start_ul, start_ol, pr = False, False, False
+            for line in read:
+                line = line.replace("**", "<b>", 1)
+                line = line.replace("**", "</b>", 1)
+                line = line.replace("__", "<em>", 1)
+                line = line.replace("__", "</em>", 1)
 
+                md5_item = findall(r"\[\[.+?\]\]", line)
+                md5_inside = findall(r"\[\[(.+?)\]\]", line)
+                if md5_item:
+                    line = line.replace(
+                        md5_item[0], md5(md5_inside[0].encode()).hexdigest()
+                    )
 
-if __name__ == '__main__':
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description='Convert markdown to HTML')
-    parser.add_argument('input_file', help='path to input markdown file')
-    parser.add_argument('output_file', help='path to output HTML file')
-    args = parser.parse_args()
+                c_string = findall(r"\(\(.+?\)\)", line)
+                c_content = findall(r"\(\((.+?)\)\)", line)
+                if c_string:
+                    c_content = "".join(
+                        c for c in c_content[0] if c not in "Cc"
+                    )
+                    line = line.replace(c_string[0], c_content)
 
-    # Check if the input file exists
-    input_path = pathlib.Path(args.input_file)
-    if not input_path.is_file():
-        print(f'Missing {input_path}', file=sys.stderr)
-        sys.exit(1)
+                length = len(line)
+                header = line.lstrip("#")
+                header_level = length - len(header)
+                ul = line.lstrip("-")
+                ul_nbr = length - len(ul)
+                ol = line.lstrip("*")
+                ol_nbr = length - len(ol)
+                if 1 <= header_level <= 6:
+                    line = (
+                        "<h{}>".format(header_level)
+                        + header.strip()
+                        + "</h{}>\n".format(header_level)
+                    )
 
-    # Convert the markdown file to HTML
-    convert_md_to_html(args.input_file, args.output_file)
+                if ul_nbr:
+                    if not start_ul:
+                        html.write("<ul>\n")
+                        start_ul = True
+                    line = "<li>" + ul.strip() + "</li>\n"
+                if start_ul and not ul_nbr:
+                    html.write("</ul>\n")
+                    start_ul = False
+
+                if ol_nbr:
+                    if not start_ol:
+                        html.write("<ol>\n")
+                        start_ol = True
+                    line = "<li>" + ol.strip() + "</li>\n"
+                if start_ol and not ol_nbr:
+                    html.write("</ol>\n")
+                    start_ol = False
+
+                if not (header_level or start_ul or start_ol):
+                    if not pr and length > 1:
+                        html.write("<p>\n")
+                        pr = True
+                    elif length > 1:
+                        html.write("<br/>\n")
+                    elif pr:
+                        html.write("</p>\n")
+                        pr = False
+
+                if length > 1:
+                    html.write(line)
+
+            if start_ul:
+                html.write("</ul>\n")
+            if start_ol:
+                html.write("</ol>\n")
+            if pr:
+                html.write("</p>\n")
+    exit(0)
